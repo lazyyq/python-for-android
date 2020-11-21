@@ -197,7 +197,8 @@ TYPE_CLASS_PHONE = 3
 IF BOOTSTRAP == 'sdl2':
     def remove_presplash():
         # Remove android presplash in SDL2 bootstrap.
-        mActivity.removeLoadingScreen()
+        # mActivity.removeLoadingScreen()
+        pass
 
 def show_keyboard(target, input_type):
     if input_type == 'text':
