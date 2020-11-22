@@ -477,7 +477,7 @@ public class PythonActivity extends SDLActivity {
                     loadingScreenRemovalTimer = new Timer();
 
                     // Update the timeout to 30 seconds
-                    loadingScreenRemovalTimer.schedule(removalTask, 50000);
+                    loadingScreenRemovalTimer.schedule(removalTask, 30000);
                 }
             }
         });
