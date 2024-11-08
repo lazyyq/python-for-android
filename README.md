@@ -15,6 +15,12 @@ python-for-android.
 python-for-android
 ==================
 
+[![Build Status](https://travis-ci.org/kivy/python-for-android.svg?branch=develop)](https://travis-ci.org/kivy/python-for-android)
+[![Unit tests & build apps](https://github.com/kivy/python-for-android/workflows/Unit%20tests%20&%20build%20apps/badge.svg?branch=develop)](https://github.com/kivy/python-for-android/actions?query=workflow%3A%22Unit+tests+%26+build+apps%22)
+[![Coverage Status](https://coveralls.io/repos/github/kivy/python-for-android/badge.svg?branch=develop&kill_cache=1)](https://coveralls.io/github/kivy/python-for-android?branch=develop)
+[![Backers on Open Collective](https://opencollective.com/kivy/backers/badge.svg)](#backers)
+[![Sponsors on Open Collective](https://opencollective.com/kivy/sponsors/badge.svg)](#sponsors)
+
 python-for-android is a packaging tool for Python apps on Android. You can
 create your own Python distribution including the modules and
 dependencies you want, and bundle it in an APK along with your own code.
@@ -116,6 +122,6 @@ years. These **unified python recipes** require a **minimum target api level of 
 api level below 21, you should use an older version of python-for-android
 (<=0.7.1).
 
-On March of 2020 we dropped support for creating apps that use Python 2. The latest 
+On March of 2020 we dropped support for creating apps that use Python 2. The latest
 python-for-android release that supported building Python 2 was version 2019.10.6.
 
