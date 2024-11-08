@@ -9,7 +9,10 @@ import java.util.List;
 import java.util.ArrayList;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.content.Intent;
+import android.view.KeyEvent;
 import android.util.Log;
 import android.widget.Toast;
 import android.os.Bundle;
@@ -71,8 +74,8 @@ public class PythonActivity extends Activity {
 
         Log.v(TAG, "Ready to unpack");
         File app_root_file = new File(getAppRoot());
-        PythonActivityUtil pythonActivityUtil = new PythonActivityUtil(mActivity, resourceManager);
-        pythonActivityUtil.unpackData("private", app_root_file);
+        PythonUtil.unpackAsset(mActivity, "private", app_root_file, true);
+        PythonUtil.unpackPyBundle(mActivity, getApplicationInfo().nativeLibraryDir + "/" + "libpybundle", app_root_file, false);
 
         Log.v(TAG, "About to do super onCreate");
         super.onCreate(savedInstanceState);
@@ -174,19 +177,22 @@ public class PythonActivity extends Activity {
             new File(getApplicationInfo().nativeLibraryDir));
     }
 
-    long lastBackClick = SystemClock.elapsedRealtime();
+    long lastBackClick = 0;
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        // If it wasn't the Back key or there's no web page history, bubble up to the default
-        // system behavior (probably exit the activity)
-        if (SystemClock.elapsedRealtime() - lastBackClick > 2000){
+        // Check if the key event was the Back button
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            // If there's no web page history, bubble up to the default
+            // system behavior (probably exit the activity)
+            if (SystemClock.elapsedRealtime() - lastBackClick > 2000){
+                lastBackClick = SystemClock.elapsedRealtime();
+                Toast.makeText(this, "Tap again to close the app", Toast.LENGTH_LONG).show();
+                return true;
+            }
+
             lastBackClick = SystemClock.elapsedRealtime();
-            Toast.makeText(this, "Click again to close the app",
-            Toast.LENGTH_LONG).show();
-            return true;
         }
 
-        lastBackClick = SystemClock.elapsedRealtime();
         return super.onKeyDown(keyCode, event);
     }
 

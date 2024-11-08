@@ -4,16 +4,16 @@ import sh
 import unittest
 
 from unittest import mock
-from platform import system
 
 from pythonforandroid.bootstrap import (
     _cmp_bootstraps_by_priority, Bootstrap, expand_dependencies,
 )
-from pythonforandroid.distribution import Distribution, generate_dist_folder_name
+from pythonforandroid.distribution import Distribution
 from pythonforandroid.recipe import Recipe
 from pythonforandroid.archs import ArchARMv7_a
 from pythonforandroid.build import Context
 from pythonforandroid.util import BuildInterruptingException
+from pythonforandroid.androidndk import AndroidNDK
 
 from test_graph import get_fake_recipe
 
@@ -34,6 +34,7 @@ class BaseClassSetupBootstrap(object):
         self.ctx.android_api = 27
         self.ctx._sdk_dir = "/opt/android/android-sdk"
         self.ctx._ndk_dir = "/opt/android/android-ndk"
+        self.ctx.ndk = AndroidNDK(self.ctx._ndk_dir)
         self.ctx.setup_dirs(os.getcwd())
         self.ctx.recipe_build_order = [
             "hostpython3",
@@ -51,7 +52,7 @@ class BaseClassSetupBootstrap(object):
         self.ctx.bootstrap.distribution = Distribution.get_distribution(
             self.ctx, name="test_prj",
             recipes=["python3", "kivy"],
-            arch_name=self.TEST_ARCH,
+            archs=[self.TEST_ARCH],
         )
 
     def tearDown(self):
@@ -86,7 +87,7 @@ class TestBootstrapBasic(BaseClassSetupBootstrap, unittest.TestCase):
 
         # test dist_dir success
         self.setUp_distribution_with_bootstrap(bs)
-        expected_folder_name = generate_dist_folder_name('test_prj', [self.TEST_ARCH])
+        expected_folder_name = 'test_prj'
         self.assertTrue(
             bs.dist_dir.endswith(f"dists/{expected_folder_name}"))
 
@@ -439,8 +440,8 @@ class GenericBootstrapTest(BaseClassSetupBootstrap):
         mock_strip_libraries.assert_called()
         expected__python_bundle = os.path.join(
             self.ctx.dist_dir,
-            f"{self.ctx.bootstrap.distribution.name}__{self.TEST_ARCH}",
-            "_python_bundle",
+            self.ctx.bootstrap.distribution.name,
+            f"_python_bundle__{self.TEST_ARCH}",
             "_python_bundle",
         )
         self.assertIn(
@@ -519,23 +520,18 @@ class GenericBootstrapTest(BaseClassSetupBootstrap):
     @mock.patch("pythonforandroid.bootstrap.shprint")
     @mock.patch("pythonforandroid.bootstrap.sh.Command")
     @mock.patch("pythonforandroid.build.ensure_dir")
-    @mock.patch("pythonforandroid.archs.glob")
     @mock.patch("pythonforandroid.archs.find_executable")
     def test_bootstrap_strip(
         self,
         mock_find_executable,
-        mock_glob,
         mock_ensure_dir,
         mock_sh_command,
         mock_sh_print,
     ):
         mock_find_executable.return_value = os.path.join(
             self.ctx._ndk_dir,
-            f"toolchains/llvm/prebuilt/{system().lower()}-x86_64/bin/clang",
+            f"toolchains/llvm/prebuilt/{self.ctx.ndk.host_tag}/bin/clang",
         )
-        mock_glob.return_value = [
-            os.path.join(self.ctx._ndk_dir, "toolchains", "llvm")
-        ]
         # prepare arch, bootstrap, distribution and PythonRecipe
         arch = ArchARMv7_a(self.ctx)
         bs = Bootstrap().get_bootstrap(self.bootstrap_name, self.ctx)
@@ -550,7 +546,13 @@ class GenericBootstrapTest(BaseClassSetupBootstrap):
             mock_find_executable.call_args[0][0],
             mock_find_executable.return_value,
         )
-        mock_sh_command.assert_called_once_with("arm-linux-androideabi-strip")
+        mock_sh_command.assert_called_once_with(
+            os.path.join(
+                self.ctx._ndk_dir,
+                f"toolchains/llvm/prebuilt/{self.ctx.ndk.host_tag}/bin",
+                "llvm-strip",
+            )
+        )
         # check that the other mocks we made are actually called
         mock_ensure_dir.assert_called()
         mock_sh_print.assert_called()

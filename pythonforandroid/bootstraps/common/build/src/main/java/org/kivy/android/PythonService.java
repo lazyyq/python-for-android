@@ -61,16 +61,16 @@ public class PythonService extends Service implements Runnable {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (pythonThread != null) {
-            // Log.v("python service", "service exists, do not start again");
-            // return START_NOT_STICKY;
-
-            Log.v("python service", "service exists, stopping the old service");
-            pythonThread = null;
-            Process.killProcess(Process.myPid());
-            Log.v("python service", "Process.killProcess(Process.myPid());"); 
+            Log.v("python service", "service exists, do not start again");
+            return startType();
+        }
+	//intent is null if OS restarts a STICKY service
+        if (intent == null) {
+            Context context = getApplicationContext();
+            intent = getThisDefaultIntent(context, "");
         }
 
-		startIntent = intent;
+        startIntent = intent;
         Bundle extras = intent.getExtras();
         androidPrivate = extras.getString("androidPrivate");
         androidArgument = extras.getString("androidArgument");
@@ -96,6 +96,10 @@ public class PythonService extends Service implements Runnable {
         return 1;
     }
 
+    protected Intent getThisDefaultIntent(Context ctx, String pythonServiceArgument) {
+        return null;
+    }
+
     protected void doStartForeground(Bundle extras) {
         String serviceTitle = extras.getString("serviceTitle");
         String serviceDescription = extras.getString("serviceDescription");
@@ -103,7 +107,7 @@ public class PythonService extends Service implements Runnable {
         Context context = getApplicationContext();
         Intent contextIntent = new Intent(context, PythonActivity.class);
         PendingIntent pIntent = PendingIntent.getActivity(context, 0, contextIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT);
+            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             notification = new Notification(
@@ -159,7 +163,10 @@ public class PythonService extends Service implements Runnable {
     @Override
     public void onTaskRemoved(Intent rootIntent) {
         super.onTaskRemoved(rootIntent);
-        stopSelf();
+        //sticky servcie runtime/restart is managed by the OS. leave it running when app is closed
+        if (startType() != START_STICKY) {
+            stopSelf();
+        }
     }
 
     @Override

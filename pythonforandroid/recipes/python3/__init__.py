@@ -3,13 +3,13 @@ import sh
 import subprocess
 
 from multiprocessing import cpu_count
-from os import environ
+from os import environ, utime
 from os.path import dirname, exists, join
 from pathlib import Path
-from shutil import copy2
+import shutil
 
 from pythonforandroid.logger import info, warning, shprint
-from pythonforandroid.patching import version_starts_with, is_version_lt
+from pythonforandroid.patching import version_starts_with
 from pythonforandroid.recipe import Recipe, TargetPythonRecipe
 from pythonforandroid.util import (
     current_directory,
@@ -56,25 +56,28 @@ class Python3Recipe(TargetPythonRecipe):
         :class:`~pythonforandroid.python.GuestPythonRecipe`
     '''
 
-    version = '3.8.1'
+    version = '3.9.9'
     url = 'https://www.python.org/ftp/python/{version}/Python-{version}.tgz'
     name = 'python3'
 
     patches = [
-        ('patches/pyconfig_detection.patch', is_version_lt("3.8.3")),
+        'patches/pyconfig_detection.patch',
+        'patches/reproducible-buildinfo.diff',
 
         # Python 3.7.1
         ('patches/py3.7.1_fix-ctypes-util-find-library.patch', version_starts_with("3.7")),
         ('patches/py3.7.1_fix-zlib-version.patch', version_starts_with("3.7")),
 
-        # Python 3.8.1
-        ('patches/py3.8.1.patch', version_starts_with("3.8"))
+        # Python 3.8.1 & 3.9.X
+        ('patches/py3.8.1.patch', version_starts_with("3.8")),
+        ('patches/py3.8.1.patch', version_starts_with("3.9"))
     ]
 
-    if sh.which('lld') is not None:
+    if shutil.which('lld') is not None:
         patches = patches + [
             ("patches/py3.7.1_fix_cortex_a8.patch", version_starts_with("3.7")),
-            ("patches/py3.8.1_fix_cortex_a8.patch", version_starts_with("3.8"))
+            ("patches/py3.8.1_fix_cortex_a8.patch", version_starts_with("3.8")),
+            ("patches/py3.8.1_fix_cortex_a8.patch", version_starts_with("3.9"))
         ]
 
     depends = ['hostpython3', 'sqlite3', 'openssl', 'libffi']
@@ -94,7 +97,8 @@ class Python3Recipe(TargetPythonRecipe):
         '--without-ensurepip',
         'ac_cv_little_endian_double=yes',
         '--prefix={prefix}',
-        '--exec-prefix={exec_prefix}')
+        '--exec-prefix={exec_prefix}',
+        '--enable-loadable-sqlite-extensions')
     '''The configure arguments needed to build the python recipe. Those are
     used in method :meth:`build_arch` (if not overwritten like python3's
     recipe does).
@@ -154,10 +158,22 @@ class Python3Recipe(TargetPythonRecipe):
     @property
     def _libpython(self):
         '''return the python's library name (with extension)'''
-        py_version = self.major_minor_version_string
-        if self.major_minor_version_string[0] == '3':
-            py_version += 'm'
-        return 'libpython{version}.so'.format(version=py_version)
+        return 'libpython{link_version}.so'.format(
+            link_version=self.link_version
+        )
+
+    @property
+    def link_version(self):
+        '''return the python's library link version e.g. 3.7m, 3.8'''
+        major, minor = self.major_minor_version_string.split('.')
+        flags = ''
+        if major == '3' and int(minor) < 8:
+            flags += 'm'
+        return '{major}.{minor}{flags}'.format(
+            major=major,
+            minor=minor,
+            flags=flags
+        )
 
     def include_root(self, arch_name):
         return join(self.get_build_dir(arch_name), 'Include')
@@ -173,7 +189,7 @@ class Python3Recipe(TargetPythonRecipe):
         self.ctx.python_recipe = self
 
     def get_recipe_env(self, arch=None, with_flags_in_cc=True):
-        env = environ.copy()
+        env = super().get_recipe_env(arch)
         env['HOSTARCH'] = arch.command_prefix
 
         env['CC'] = arch.get_clang_exe(with_target=True)
@@ -187,13 +203,12 @@ class Python3Recipe(TargetPythonRecipe):
         env['CFLAGS'] = ' '.join(
             [
                 '-fPIC',
-                '-DANDROID',
-                '-D__ANDROID_API__={}'.format(self.ctx.ndk_api),
+                '-DANDROID'
             ]
         )
 
         env['LDFLAGS'] = env.get('LDFLAGS', '')
-        if sh.which('lld') is not None:
+        if shutil.which('lld') is not None:
             # Note: The -L. is to fix a bug in python 3.7.
             # https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=234409
             env['LDFLAGS'] += ' -L. -fuse-ld=lld'
@@ -249,8 +264,8 @@ class Python3Recipe(TargetPythonRecipe):
         # the build of zlib module, here we search for android's zlib version
         # and sets the right flags, so python can be build with android's zlib
         info("Activating flags for android's zlib")
-        zlib_lib_path = join(self.ctx.ndk_platform, 'usr', 'lib')
-        zlib_includes = join(self.ctx.ndk_dir, 'sysroot', 'usr', 'include')
+        zlib_lib_path = arch.ndk_lib_dir_versioned
+        zlib_includes = self.ctx.ndk.sysroot_include_dir
         zlib_h = join(zlib_includes, 'zlib.h')
         try:
             with open(zlib_h) as fileh:
@@ -354,7 +369,7 @@ class Python3Recipe(TargetPythonRecipe):
         # Compile to *.pyc/*.pyo the standard python library
         self.compile_python_files(join(self.get_build_dir(arch.arch), 'Lib'))
         # Compile to *.pyc/*.pyo the other python packages (site-packages)
-        self.compile_python_files(self.ctx.get_python_install_dir())
+        self.compile_python_files(self.ctx.get_python_install_dir(arch.arch))
 
         # Bundle compiled python modules to a folder
         modules_dir = join(dirn, 'modules')
@@ -365,21 +380,27 @@ class Python3Recipe(TargetPythonRecipe):
         info("Copy {} files into the bundle".format(len(module_filens)))
         for filen in module_filens:
             info(" - copy {}".format(filen))
-            copy2(filen, modules_dir)
+            shutil.copy2(filen, modules_dir)
 
         # zip up the standard library
         stdlib_zip = join(dirn, 'stdlib.zip')
         with current_directory(join(self.get_build_dir(arch.arch), 'Lib')):
             stdlib_filens = list(walk_valid_filens(
                 '.', self.stdlib_dir_blacklist, self.stdlib_filen_blacklist))
+            if 'SOURCE_DATE_EPOCH' in environ:
+                # for reproducible builds
+                stdlib_filens.sort()
+                timestamp = int(environ['SOURCE_DATE_EPOCH'])
+                for filen in stdlib_filens:
+                    utime(filen, (timestamp, timestamp))
             info("Zip {} files into the bundle".format(len(stdlib_filens)))
-            shprint(sh.zip, stdlib_zip, *stdlib_filens)
+            shprint(sh.zip, '-X', stdlib_zip, *stdlib_filens)
 
         # copy the site-packages into place
         ensure_dir(join(dirn, 'site-packages'))
-        ensure_dir(self.ctx.get_python_install_dir())
+        ensure_dir(self.ctx.get_python_install_dir(arch.arch))
         # TODO: Improve the API around walking and copying the files
-        with current_directory(self.ctx.get_python_install_dir()):
+        with current_directory(self.ctx.get_python_install_dir(arch.arch)):
             filens = list(walk_valid_filens(
                 '.', self.site_packages_dir_blacklist,
                 self.site_packages_filen_blacklist))
@@ -387,14 +408,12 @@ class Python3Recipe(TargetPythonRecipe):
             for filen in filens:
                 info(" - copy {}".format(filen))
                 ensure_dir(join(dirn, 'site-packages', dirname(filen)))
-                copy2(filen, join(dirn, 'site-packages', filen))
+                shutil.copy2(filen, join(dirn, 'site-packages', filen))
 
         # copy the python .so files into place
         python_build_dir = join(self.get_build_dir(arch.arch),
                                 'android-build')
-        python_lib_name = 'libpython' + self.major_minor_version_string
-        if self.major_minor_version_string[0] == '3':
-            python_lib_name += 'm'
+        python_lib_name = 'libpython' + self.link_version
         shprint(
             sh.cp,
             join(python_build_dir, python_lib_name + '.so'),

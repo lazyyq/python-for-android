@@ -11,8 +11,9 @@ from pythonforandroid import __version__
 from pythonforandroid.pythonpackage import get_dep_names_of_package
 from pythonforandroid.recommendations import (
     RECOMMENDED_NDK_API, RECOMMENDED_TARGET_API, print_recommendations)
-from pythonforandroid.util import BuildInterruptingException
+from pythonforandroid.util import BuildInterruptingException, load_source
 from pythonforandroid.entrypoints import main
+from pythonforandroid.prerequisites import check_and_install_default_prerequisites
 
 
 def check_python_dependencies():
@@ -28,8 +29,7 @@ def check_python_dependencies():
 
     ok = True
 
-    modules = [('colorama', '0.3.3'), 'appdirs', ('sh', '1.10'), 'jinja2',
-               'six']
+    modules = [('colorama', '0.3.3'), 'appdirs', ('sh', '1.10'), 'jinja2']
 
     for module in modules:
         if isinstance(module, tuple):
@@ -66,6 +66,8 @@ def check_python_dependencies():
         exit(1)
 
 
+if not environ.get('SKIP_PREREQUISITES_CHECK', '0') == '1':
+    check_and_install_default_prerequisites()
 check_python_dependencies()
 
 
@@ -81,7 +83,6 @@ from functools import wraps
 
 import argparse
 import sh
-import imp
 from appdirs import user_data_dir
 import logging
 from distutils.version import LooseVersion
@@ -99,8 +100,6 @@ from pythonforandroid.build import Context, build_recipes
 user_dir = dirname(realpath(os.path.curdir))
 toolchain_dir = dirname(__file__)
 sys.path.insert(0, join(toolchain_dir, "tools", "external"))
-
-APK_SUFFIX = '.apk'
 
 
 def add_boolean_option(parser, names, no_names=None,
@@ -164,7 +163,7 @@ def dist_from_args(ctx, args):
         ctx,
         name=args.dist_name,
         recipes=split_argument_list(args.requirements),
-        arch_name=args.arch,
+        archs=args.arch,
         ndk_api=args.ndk_api,
         force_build=args.force_build,
         require_perfect_match=args.require_perfect_match,
@@ -314,8 +313,8 @@ class ToolchainCL:
                   '(default: {})'.format(default_storage_dir)))
 
         generic_parser.add_argument(
-            '--arch', help='The arch to build for.',
-            default='armeabi-v7a')
+            '--arch', help='The archs to build for.',
+            action='append', default=[])
 
         # Options for specifying the Distribution
         generic_parser.add_argument(
@@ -375,6 +374,16 @@ class ToolchainCL:
             '--local-recipes', '--local_recipes',
             dest='local_recipes', default='./p4a-recipes',
             help='Directory to look for local recipes')
+
+        generic_parser.add_argument(
+            '--activity-class-name',
+            dest='activity_class_name', default='org.kivy.android.PythonActivity',
+            help='The full java class name of the main activity')
+
+        generic_parser.add_argument(
+            '--service-class-name',
+            dest='service_class_name', default='org.kivy.android.PythonService',
+            help='Full java package name of the PythonService class')
 
         generic_parser.add_argument(
             '--java-build-tool',
@@ -556,6 +565,11 @@ class ToolchainCL:
 
         add_parser(
             subparsers,
+            'aab', help='Build an AAB',
+            parents=[parser_packaging])
+
+        add_parser(
+            subparsers,
             'create', help='Compile a set of requirements into a dist',
             parents=[generic_parser])
         add_parser(
@@ -609,6 +623,10 @@ class ToolchainCL:
             args.unknown_args += ["--with-debug-symbols"]
         if hasattr(args, "ignore_setup_py") and args.ignore_setup_py:
             args.use_setup_py = False
+        if hasattr(args, "activity_class_name") and args.activity_class_name != 'org.kivy.android.PythonActivity':
+            args.unknown_args += ["--activity-class-name", args.activity_class_name]
+        if hasattr(args, "service_class_name") and args.service_class_name != 'org.kivy.android.PythonService':
+            args.unknown_args += ["--service-class-name", args.service_class_name]
 
         self.args = args
 
@@ -699,10 +717,13 @@ class ToolchainCL:
         self.ctx.symlink_bootstrap_files = args.symlink_bootstrap_files
         self.ctx.java_build_tool = args.java_build_tool
 
-        self._archs = split_argument_list(args.arch)
+        self._archs = args.arch
 
-        self.ctx.local_recipes = args.local_recipes
+        self.ctx.local_recipes = realpath(args.local_recipes)
         self.ctx.copy_libs = args.copy_libs
+
+        self.ctx.activity_class_name = args.activity_class_name
+        self.ctx.service_class_name = args.service_class_name
 
         # Each subparser corresponds to a method
         command = args.subparser_name.replace('-', '_')
@@ -752,8 +773,8 @@ class ToolchainCL:
             return
         if not hasattr(self, "hook_module"):
             # first time, try to load the hook module
-            self.hook_module = imp.load_source("pythonforandroid.hook",
-                                               self.args.hook)
+            self.hook_module = load_source(
+                "pythonforandroid.hook", self.args.hook)
         if hasattr(self.hook_module, name):
             info("Hook: execute {}".format(name))
             getattr(self.hook_module, name)(self)
@@ -968,7 +989,8 @@ class ToolchainCL:
         """
 
         fix_args = ('--dir', '--private', '--add-jar', '--add-source',
-                    '--whitelist', '--blacklist', '--presplash', '--icon')
+                    '--whitelist', '--blacklist', '--presplash', '--icon',
+                    '--icon-bg', '--icon-fg')
         unknown_args = args.unknown_args
 
         for asset in args.assets:
@@ -1012,7 +1034,7 @@ class ToolchainCL:
         """
         Creates an android package using gradle
         :param args: parser args
-        :param package_type: one of 'apk', 'aar'
+        :param package_type: one of 'apk', 'aar', 'aab'
         :return (gradle output, build_args)
         """
         ctx = self.ctx
@@ -1025,7 +1047,7 @@ class ToolchainCL:
         with current_directory(dist.dist_dir):
             self.hook("before_apk_build")
             os.environ["ANDROID_API"] = str(self.ctx.android_api)
-            build = imp.load_source('build', join(dist.dist_dir, 'build.py'))
+            build = load_source('build', join(dist.dist_dir, 'build.py'))
             build_args = build.parse_args_and_make_package(
                 args.unknown_args
             )
@@ -1060,9 +1082,17 @@ class ToolchainCL:
                     _tail=20, _critical=True, _env=env
                 )
             if args.build_mode == "debug":
+                if package_type == "aab":
+                    raise BuildInterruptingException(
+                        "aab is meant only for distribution and is not available in debug mode. "
+                        "Instead, you can use apk while building for debugging purposes."
+                    )
                 gradle_task = "assembleDebug"
             elif args.build_mode == "release":
-                gradle_task = "assembleRelease"
+                if package_type in ["apk", "aar"]:
+                    gradle_task = "assembleRelease"
+                elif package_type == "aab":
+                    gradle_task = "bundleRelease"
             else:
                 raise BuildInterruptingException(
                     "Unknown build mode {} for apk()".format(args.build_mode))
@@ -1076,7 +1106,7 @@ class ToolchainCL:
         :param args: the parser args
         :param output: RunningCommand output
         :param build_args: build args as returned by build.parse_args
-        :param package_type: one of 'apk', 'aar'
+        :param package_type: one of 'apk', 'aar', 'aab'
         :param output_dir: where to put the package file
         """
 
@@ -1113,11 +1143,12 @@ class ToolchainCL:
                 raise BuildInterruptingException('Couldn\'t find the built APK')
 
         info_main('# Found android package file: {}'.format(package_file))
+        package_extension = f".{package_type}"
         if package_add_version:
             info('# Add version number to android package')
-            package_name = basename(package_file)[:-len(APK_SUFFIX)]
-            package_file_dest = "{}-{}-{}".format(
-                package_name, build_args.version, APK_SUFFIX)
+            package_name = basename(package_file)[:-len(package_extension)]
+            package_file_dest = "{}-{}{}".format(
+                package_name, build_args.version, package_extension)
             info('# Android package renamed to {}'.format(package_file_dest))
             shprint(sh.cp, package_file, package_file_dest)
         else:
@@ -1134,6 +1165,12 @@ class ToolchainCL:
         output, build_args = self._build_package(args, package_type='aar')
         output_dir = join(self._dist.dist_dir, "build", "outputs", 'aar')
         self._finish_package(args, output, build_args, 'aar', output_dir)
+
+    @require_prebuilt_dist
+    def aab(self, args):
+        output, build_args = self._build_package(args, package_type='aab')
+        output_dir = join(self._dist.dist_dir, "build", "outputs", 'bundle', args.build_mode)
+        self._finish_package(args, output, build_args, 'aab', output_dir)
 
     @require_prebuilt_dist
     def create(self, args):

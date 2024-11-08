@@ -15,7 +15,10 @@
 #     Use 'docker run' without '--rm' flag for keeping the container and use
 #     'docker commit <container hash> <new image>' to extend the original image
 
-FROM ubuntu:20.04
+# If platform is not specified, by default the target platform of the build request is used.
+# This is not what we want, as Google doesn't provide a linux/arm64 compatible NDK.
+# See: https://docs.docker.com/engine/reference/builder/#from
+FROM --platform=linux/amd64 ubuntu:20.04
 
 # configure locale
 RUN apt -y update -qq > /dev/null \
@@ -45,7 +48,7 @@ ENV HOME_DIR="/home/${USER}"
 ENV WORK_DIR="${HOME_DIR}/app" \
     PATH="${HOME_DIR}/.local/bin:${PATH}" \
     ANDROID_HOME="${HOME_DIR}/.android" \
-    JAVA_HOME="/usr/lib/jvm/java-8-openjdk-amd64"
+    JAVA_HOME="/usr/lib/jvm/java-13-openjdk-amd64"
 
 
 # install system dependencies
@@ -69,7 +72,7 @@ RUN dpkg --add-architecture i386 \
     libssl-dev \
     libstdc++6:i386 \
     libtool \
-    openjdk-8-jdk \
+    openjdk-13-jdk \
     patch \
     pkg-config \
     python3 \
@@ -98,8 +101,8 @@ RUN mkdir ${ANDROID_HOME} && chown --recursive ${USER} ${HOME_DIR} ${ANDROID_HOM
 USER ${USER}
 
 # Download and install android's NDK/SDK
-COPY ci/makefiles/android.mk /tmp/android.mk
-RUN make --file /tmp/android.mk target_os=linux \
+COPY --chown=user:user ci/makefiles/android.mk /tmp/android.mk
+RUN make --file /tmp/android.mk \
     && sudo rm /tmp/android.mk
 
 # install python-for-android from current branch

@@ -11,7 +11,8 @@ from setuptools import setup, find_packages
 packages = find_packages()
 
 package_data = {'': ['*.tmpl',
-                     '*.patch', ], }
+                     '*.patch',
+                     '*.diff', ], }
 
 data_files = []
 
@@ -19,9 +20,9 @@ data_files = []
 # must be a single statement since buildozer is currently parsing it, refs:
 # https://github.com/kivy/buildozer/issues/722
 install_reqs = [
-    'appdirs', 'colorama>=0.3.3', 'jinja2', 'six',
-    'enum34; python_version<"3.4"', 'sh>=1.10; sys_platform!="nt"',
-    'pep517<0.7.0"', 'toml',
+    'appdirs', 'colorama>=0.3.3', 'jinja2',
+    'sh>=1.10; sys_platform!="nt"',
+    'pep517<0.7.0', 'toml',
 ]
 # (pep517 and toml are used by pythonpackage.py)
 
@@ -44,7 +45,7 @@ def recursively_include(results, directory, patterns):
 
 recursively_include(package_data, 'pythonforandroid/recipes',
                     ['*.patch', 'Setup*', '*.pyx', '*.py', '*.c', '*.h',
-                     '*.mk', '*.jam', ])
+                     '*.mk', '*.jam', '*.diff', ])
 recursively_include(package_data, 'pythonforandroid/bootstraps',
                     ['*.properties', '*.xml', '*.java', '*.tmpl', '*.txt', '*.png',
                      '*.mk', '*.c', '*.h', '*.py', '*.sh', '*.jpg', '*.aidl',
@@ -88,7 +89,7 @@ setup(name='python-for-android',
       description='Android APK packager for Python scripts and apps',
       long_description=long_description,
       long_description_content_type='text/markdown',
-      python_requires=">=3.6.0",
+      python_requires=">=3.7.0",
       author='The Kivy team',
       author_email='kivy-dev@googlegroups.com',
       url='https://github.com/kivy/python-for-android',
@@ -102,6 +103,7 @@ setup(name='python-for-android',
           'distutils.commands': [
               'apk = pythonforandroid.bdistapk:BdistAPK',
               'aar = pythonforandroid.bdistapk:BdistAAR',
+              'aab = pythonforandroid.bdistapk:BdistAAB',
               ],
           },
       classifiers=[
@@ -115,9 +117,10 @@ setup(name='python-for-android',
           'Operating System :: Android',
           'Programming Language :: C',
           'Programming Language :: Python :: 3',
-          'Programming Language :: Python :: 3.6',
           'Programming Language :: Python :: 3.7',
           'Programming Language :: Python :: 3.8',
+          'Programming Language :: Python :: 3.9',
+          'Programming Language :: Python :: 3.10',
           'Topic :: Software Development',
           'Topic :: Utilities',
           ],

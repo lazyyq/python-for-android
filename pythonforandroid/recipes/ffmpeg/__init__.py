@@ -4,7 +4,7 @@ import sh
 
 
 class FFMpegRecipe(Recipe):
-    version = '007e03348dbd8d3de3eb09022d72c734a8608144'
+    version = 'n4.3.1'
     # Moved to github.com instead of ffmpeg.org to improve download speed
     url = 'https://github.com/FFmpeg/FFmpeg/archive/{version}.zip'
     depends = ['sdl2']  # Need this to build correct recipe order
@@ -44,6 +44,9 @@ class FFMpegRecipe(Recipe):
                 ldflags += ['-L' + build_dir]
 
             if 'ffpyplayer_codecs' in self.ctx.recipe_build_order:
+                # Enable GPL
+                flags += ['--enable-gpl']
+
                 # libx264
                 flags += ['--enable-libx264']
                 build_dir = Recipe.get_recipe(
@@ -57,6 +60,13 @@ class FFMpegRecipe(Recipe):
                 cflags += ['-I' + build_dir + '/include/']
                 ldflags += ['-lshine', '-L' + build_dir + '/lib/']
                 ldflags += ['-lm']
+
+                # libvpx
+                flags += ['--enable-libvpx']
+                build_dir = Recipe.get_recipe(
+                    'libvpx', self.ctx).get_build_dir(arch.arch)
+                cflags += ['-I' + build_dir + '/include/']
+                ldflags += ['-lvpx', '-L' + build_dir + '/lib/']
 
                 # Enable all codecs:
                 flags += [
@@ -72,7 +82,7 @@ class FFMpegRecipe(Recipe):
                     '--enable-parser=aac,ac3,h261,h264,mpegaudio,mpeg4video,mpegvideo,vc1',
                     '--enable-decoder=aac,h264,mpeg4,mpegvideo',
                     '--enable-muxer=h264,mov,mp4,mpeg2video',
-                    '--enable-demuxer=aac,h264,m4v,mov,mpegvideo,vc1',
+                    '--enable-demuxer=aac,h264,m4v,mov,mpegvideo,vc1,rtsp',
                 ]
 
             # needed to prevent _ffmpeg.so: version node not found for symbol av_init_packet@LIBAVFORMAT_52
@@ -90,10 +100,9 @@ class FFMpegRecipe(Recipe):
             # other flags:
             flags += [
                 '--enable-filter=aresample,resample,crop,adelay,volume,scale',
-                '--enable-protocol=file,http,hls',
+                '--enable-protocol=file,http,hls,udp,tcp',
                 '--enable-small',
                 '--enable-hwaccels',
-                '--enable-gpl',
                 '--enable-pic',
                 '--disable-static',
                 '--disable-debug',
@@ -101,10 +110,11 @@ class FFMpegRecipe(Recipe):
             ]
 
             if 'arm64' in arch.arch:
-                cross_prefix = 'aarch64-linux-android-'
                 arch_flag = 'aarch64'
+            elif 'x86' in arch.arch:
+                arch_flag = 'x86'
+                flags += ['--disable-asm']
             else:
-                cross_prefix = 'arm-linux-androideabi-'
                 arch_flag = 'arm'
 
             # android:
@@ -113,10 +123,8 @@ class FFMpegRecipe(Recipe):
                 '--enable-cross-compile',
                 '--cross-prefix={}-'.format(arch.target),
                 '--arch={}'.format(arch_flag),
-                '--strip={}strip'.format(cross_prefix),
-                '--sysroot={}'.format(join(self.ctx.ndk_dir, 'toolchains',
-                                           'llvm', 'prebuilt', 'linux-x86_64',
-                                           'sysroot')),
+                '--strip={}'.format(self.ctx.ndk.llvm_strip),
+                '--sysroot={}'.format(self.ctx.ndk.sysroot),
                 '--enable-neon',
                 '--prefix={}'.format(realpath('.')),
             ]

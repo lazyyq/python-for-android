@@ -1,4 +1,5 @@
 import io
+import os
 import sys
 import pytest
 from unittest import mock
@@ -60,31 +61,26 @@ class TestToolchainCL:
             '--bootstrap=service_only',
             '--requirements=python3',
             '--dist-name=test_toolchain',
+            '--activity-class-name=abc.myapp.android.CustomPythonActivity',
+            '--service-class-name=xyz.myapp.android.CustomPythonService',
+            '--arch=arm64-v8a',
+            '--arch=armeabi-v7a'
         ]
         with patch_sys_argv(argv), mock.patch(
             'pythonforandroid.build.get_available_apis'
         ) as m_get_available_apis, mock.patch(
-            'pythonforandroid.build.get_toolchain_versions'
-        ) as m_get_toolchain_versions, mock.patch(
-            'pythonforandroid.build.get_ndk_platform_dir'
-        ) as m_get_ndk_platform_dir, mock.patch(
             'pythonforandroid.toolchain.build_recipes'
         ) as m_build_recipes, mock.patch(
             'pythonforandroid.bootstraps.service_only.'
             'ServiceOnlyBootstrap.assemble_distribution'
         ) as m_run_distribute:
             m_get_available_apis.return_value = [27]
-            m_get_toolchain_versions.return_value = (['4.9'], True)
-            m_get_ndk_platform_dir.return_value = (
-                '/tmp/android-ndk/platforms/android-21/arch-arm', True)
-            ToolchainCL()
+            tchain = ToolchainCL()
+            assert tchain.ctx.activity_class_name == 'abc.myapp.android.CustomPythonActivity'
+            assert tchain.ctx.service_class_name == 'xyz.myapp.android.CustomPythonService'
         assert m_get_available_apis.call_args_list in [
             [mock.call('/tmp/android-sdk')],  # linux case
             [mock.call('/private/tmp/android-sdk')]  # macos case
-        ]
-        assert m_get_toolchain_versions.call_args_list in [
-            [mock.call('/tmp/android-ndk', mock.ANY)],  # linux case
-            [mock.call('/private/tmp/android-ndk', mock.ANY)],  # macos case
         ]
         build_order = [
             'hostpython3', 'libffi', 'openssl', 'sqlite3', 'python3',
@@ -112,7 +108,7 @@ class TestToolchainCL:
         """
         The `--sdk-dir` is mandatory to `create` a distribution.
         """
-        argv = ['toolchain.py', 'create']
+        argv = ['toolchain.py', 'create', '--arch=arm64-v8a', '--arch=armeabi-v7a']
         with patch_sys_argv(argv), pytest.raises(
             BuildInterruptingException
         ) as ex_info:
@@ -141,3 +137,34 @@ class TestToolchainCL:
             assert expected_string in m_stdout.getvalue()
         # deletes static attribute to not mess with other tests
         del Recipe.recipes
+
+    def test_local_recipes_dir(self):
+        """
+        Checks the `local_recipes` attribute in the Context is absolute.
+        """
+        cwd = os.path.realpath(os.getcwd())
+        common_args = [
+            'toolchain.py',
+            'recommendations',
+        ]
+
+        # Check the default ./p4a-recipes becomes absolute.
+        argv = common_args
+        with patch_sys_argv(argv):
+            toolchain = ToolchainCL()
+        expected_local_recipes = os.path.join(cwd, 'p4a-recipes')
+        assert toolchain.ctx.local_recipes == expected_local_recipes
+
+        # Check a supplied relative directory becomes absolute.
+        argv = common_args + ['--local-recipes=foo']
+        with patch_sys_argv(argv):
+            toolchain = ToolchainCL()
+        expected_local_recipes = os.path.join(cwd, 'foo')
+        assert toolchain.ctx.local_recipes == expected_local_recipes
+
+        # An absolute directory should remain unchanged.
+        local_recipes = os.path.join(cwd, 'foo')
+        argv = common_args + ['--local-recipes={}'.format(local_recipes)]
+        with patch_sys_argv(argv):
+            toolchain = ToolchainCL()
+        assert toolchain.ctx.local_recipes == local_recipes

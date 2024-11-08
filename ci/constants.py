@@ -26,6 +26,14 @@ BROKEN_RECIPES_PYTHON3 = set([
     # mpmath package with a version >= 0.19 required
     'sympy',
     'vlc',
+    # need extra gfortran NDK system add-on
+    'lapack', 'scipy',
+    # Outdated and there's a chance that is now useless.
+    'zope_interface',
+    # Requires zope_interface, which is broken.
+    'twisted',
+    # genericndkbuild is incompatible with sdl2 (which is build by default when targeting sdl2 bootstrap)
+    'genericndkbuild',
 ])
 
 BROKEN_RECIPES = {
